@@ -1,111 +1,158 @@
 <?php
 /**
- * Plugin Name: [Forminator Pro] - Restrict select the multiple field(s).
- * Description: [Forminator Pro] - Restrict select the multiple field(s) (select/checkbox).
- * Author: Thobk @ WPMUDEV
- * Jira: SLS-918
- * Author URI: https://premium.wpmudev.org
- * License: GPLv2 or later
+ * Plugin Name: Forminator Checkbox Limiter
+ * Description: Limits checkbox selections in Forminator forms
  */
-if ( ! defined( 'ABSPATH' ) ) {
-	exit;
-} elseif ( defined( 'WP_CLI' ) && WP_CLI ) {
-	return;
-}
-/**
- * 1. Add custom class wpmudev-option-limit inside STYLING tab of a multiple field's settings: https://share.getcloudapp.com/KoulYdY9
- * 2. Enter the form id(s) in the snippet code bellow that you want to apply this custom code: form_ids: [123, 456]
- * 3. Modify the limit for each MU field:
- * limit: {
- * 'checkbox-2': 5,//[field-id]:[limit]
- * 'select-1': 2
- * }
- */
-add_action( 'wp_footer', function(){
+if (!defined('ABSPATH')) exit;
 
-	global $post;
+add_action('wp_footer', function() {
+    ?>
+    <script type="text/javascript">
+    (function($) {
+        const ForminatorLimiter = {
+            config: {
+                form_ids: [791, 9034, 64], // REPLACE WITH YOUR FORM IDs
+                individual_limits: {
+                    'checkbox-1': 1,
+                    'checkbox-3': 4,
+                    'checkbox-5': 7
+                },
+                group_limits: [
+                    {
+                        ids: ['checkbox-13', 'checkbox-14', 'checkbox-15', 'checkbox-16', 'checkbox-17', 'checkbox-18'],
+                        limit: 7
+                    }
+                ]
+            },
 
-	if( ! $post instanceof WP_Post || ! has_shortcode( $post->post_content, 'forminator_form' ) ) {
-		return;
-	}
+            init() {
+                this.initForms();
+                this.setupObservers();
+                this.bindEvents();
+            },
 
-	?>
-	<style>
-		.forminator-ui .wpmudev-option-limit .wpmudev-disabled{
-			color:#ddd!important;
-		}
-		.forminator-ui .wpmudev-option-limit .wpmudev-disabled span[aria-hidden]{
-			border-color: #ddd!important;
-    	background-color: #ddd!important;
-		}
-	</style>
-	<script type="text/javascript">
-		
-		($=>{
+            initForms() {
+                this.config.form_ids.forEach(formId => {
+                    const $form = $(`#forminator-module-${formId}`);
+                    if ($form.length) {
+                        this.processIndividualLimits($form);
+                        this.processGroupLimits($form);
+                    }
+                });
+            },
 
-			const _forminator_restrict_multiple_fields = {
-				form_ids: [791, 9034, 64],
-				limit: {
-					'checkbox-1': 1,//[field-id]:[limit]
-					'checkbox-3': 4,
-					'checkbox-5': 7,
-				},
-				run : function( e, form_id ) {
-					if( _forminator_restrict_multiple_fields.form_ids.indexOf( form_id ) === -1 ){
-						return;
-					}
-					let _form = $( "#forminator-module-" + form_id );
+            processIndividualLimits($form) {
+                $form.find('.wpmudev-option-limit').each((i, field) => {
+                    const $field = $(field);
+                    const fieldId = $field.attr('id');
+                    const limit = this.config.individual_limits[fieldId];
+                    if (typeof limit !== 'undefined') {
+                        this.setupIndividualField($field, limit);
+                    }
+                });
+            },
 
-					_form.find('.wpmudev-option-limit').each(function(){
-						let _field = $(this),
-								checkbox_fields = _field.find( ":checkbox" );
-						if( checkbox_fields.length ){
-							checkbox_fields.on('change', function (e) {
-								let _parent = $(this).closest('.wpmudev-option-limit'),
-										_parent_id = _parent.attr('id'),
-										_selected = _parent.find(':checkbox:checked').length;
-								if( _parent_id in _forminator_restrict_multiple_fields.limit && _selected >= _forminator_restrict_multiple_fields.limit[ _parent_id ]){
+            setupIndividualField($field, limit) {
+                $field.find(':checkbox').on('change', (e) => {
+                    this.handleIndividualCheckboxChange($field, limit);
+                });
+                this.updateIndividualFieldState($field, limit);
+            },
 
-									// save latest value.
-									_field.data('latest_value', $(this).val() );
-									// disable other options.
-									_parent.find(':checkbox:not(:checked)').each(function(){
-										$(this).prop('disabled', true).parent().addClass('wpmudev-disabled');
-									});
-								}else{
-									_parent.find(':checkbox:disabled').each(function(){
-										$(this).prop('disabled', false).parent().removeClass('wpmudev-disabled');
-									});
+            handleIndividualCheckboxChange($field, limit) {
+                const checked = $field.find(':checked').length;
+                if (checked >= limit) {
+                    this.disableUnchecked($field);
+                } else {
+                    this.enableAll($field);
+                }
+            },
 
-									_field.removeData('latest_value');
-								}
-							});
-						}
+            updateIndividualFieldState($field, limit) {
+                const checked = $field.find(':checked').length;
+                if (checked >= limit) this.disableUnchecked($field);
+            },
 
-						// auto remove previous value when riched the limit.
-						$(this).on('click', '.wpmudev-disabled', function(){
-							let _latest_value = _field.data('latest_value') ;
-							if( _latest_value ){
-								let _previous_opt = $(this).closest('.wpmudev-option-limit').find('input[value="'+ _latest_value +'"');
-								if( _previous_opt.length ){
-									_previous_opt.trigger('click');
-									$(this).removeClass('wpmudev-disabled').find('input:disabled').removeAttr('disabled');
-								}
-							}
-						})
-					});
-				}
-			}
+            processGroupLimits($form) {
+                this.config.group_limits.forEach(group => {
+                    const selectors = group.ids.map(id => `#${id}`).join(', ');
+                    const $groups = $form.find(selectors);
+                    if ($groups.length) {
+                        this.setupGroup($groups, group.limit);
+                    }
+                });
+            },
 
-			$(document).ready(function(){
-				$.each(_forminator_restrict_multiple_fields.form_ids, function(i, _form_id){
-					_forminator_restrict_multiple_fields.run(this,_form_id);
-				});
-				$(document).on( 'response.success.load.forminator', _forminator_restrict_multiple_fields.run );
-			});
-		})(jQuery);
+            setupGroup($groups, limit) {
+                const $checkboxes = $groups.find(':checkbox');
+                $checkboxes.on('change', () => this.handleGroupChange($groups, limit));
+                this.updateGroupState($groups, limit);
+            },
 
-	</script>
+            handleGroupChange($groups, limit) {
+                const checkedCount = $groups.find(':checked').length;
+                if (checkedCount >= limit) {
+                    this.disableUncheckedInGroup($groups);
+                } else {
+                    this.enableAllInGroup($groups);
+                }
+            },
 
-	<?php
-}, 999 );
+            disableUncheckedInGroup($groups) {
+                $groups.find(':checkbox:not(:checked)')
+                    .prop('disabled', true)
+                    .closest('.forminator-checkbox')
+                    .addClass('wpmudev-disabled');
+            },
+
+            enableAllInGroup($groups) {
+                $groups.find(':checkbox:disabled')
+                    .prop('disabled', false)
+                    .closest('.forminator-checkbox')
+                    .removeClass('wpmudev-disabled');
+            },
+
+            updateGroupState($groups, limit) {
+                const checkedCount = $groups.find(':checked').length;
+                if (checkedCount >= limit) {
+                    this.disableUncheckedInGroup($groups);
+                }
+            },
+
+            disableUnchecked($field) {
+                $field.find(':checkbox:not(:checked)')
+                    .prop('disabled', true)
+                    .closest('.forminator-checkbox')
+                    .addClass('wpmudev-disabled');
+            },
+
+            enableAll($field) {
+                $field.find(':checkbox:disabled')
+                    .prop('disabled', false)
+                    .closest('.forminator-checkbox')
+                    .removeClass('wpmudev-disabled');
+            },
+
+            setupObservers() {
+                if (typeof MutationObserver === 'undefined') return;
+                
+                new MutationObserver(mutations => {
+                    mutations.forEach(() => this.initForms());
+                }).observe(document.body, {
+                    childList: true,
+                    subtree: true
+                });
+            },
+
+            bindEvents() {
+                $(document).on('response.success.load.forminator', () => {
+                    setTimeout(() => this.initForms(), 100);
+                });
+            }
+        };
+
+        $(() => ForminatorLimiter.init());
+    })(jQuery);
+    </script>
+    <?php
+}, 9999);
